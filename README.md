@@ -16,4 +16,5 @@
   -->
   </integration>
 ```
-It is important to set either <email_alert_level> to 0 or just to comment it out. Otherwise the stock maild will keep sending mails.
+> [!IMPORTANT]
+> It is necessary to set either `<email_alert_level>0</email_alert_level>` or just to comment it out or delete the line. Otherwise the stock maild will keep sending mails.
