@@ -22,4 +22,4 @@
 > [!IMPORTANT]
 > It is necessary to set either `<email_alert_level>0</email_alert_level>` or just to comment it out or delete the line. Otherwise the stock maild will keep sending mails.
 
-server and sender address also have to be adjusted in the integration
+server and sender address also have to be adjusted at the top of the custom integration
