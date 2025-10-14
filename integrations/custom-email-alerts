@@ -1,161 +1,298 @@
-#!/var/ossec/framework/python/bin/python3
-##### custom-email-alerts
-# Author: Juan C. Tello
-# Version: 2022.01.13
-# Description:
-# 
-# This integration allows the user to send fully customizable email alerts
-#  this is a simple implementation for which the message is customized in
-#  the generate_msg() function. A full html body is accepted if necessary.
-#  Another assumption is that the mail server does not require authentication
-#  the script can be easily adapted to use authentication or a local postfix
-#  proxy may be used as explained in steps 1-6 of the following guide:
-#  https://documentation.wazuh.com/4.2/user-manual/manager/manual-email-report/smtp-authentication.html
-#
-# Configuration example:
-#
-#  <integration>
-#      <name>custom-email-alerts</name>
-#      <hook_url>emailrecipient@example.com</hook_url>
-#      <group>attacks</group>
-#      <alert_format>json</alert_format>
-#  </integration>
-#############################
+# --- Config (overridable via environment) ---
+EMAIL_SERVER = os.getenv("EMAIL_SERVER", "localhost")             # <- ADJUST MAIL SERVER
+EMAIL_FROM   = os.getenv("EMAIL_FROM",   "sender@domain")         # <- ADJUST SENDER ADDRESS
+INCLUDE_JSON = os.getenv("INCLUDE_JSON_IN_BODY", "").lower() in ("1", "true", "yes")
+RESOLVE_WS_IP = os.getenv("RESOLVE_WORKSTATION_IP", "1").lower() in ("1", "true", "yes")
 
-import json
-import sys
-import time
-import os
-import smtplib
-from email.message import EmailMessage
+# Paths
+PWD = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+LOG_FILE = f"{PWD}/logs/integrations.log"
 
-email_server = "smtp.email.com"
-email_from = "noreply@example.com"
+# ---- Helpers ----
+def safe_get(d, path, default=""):
+    cur = d
+    for p in path.split("."):
+        if isinstance(cur, dict) and p in cur:
+            cur = cur[p]
+        else:
+            return default
+    return cur
 
+def log_line(msg):
+    try:
+        with open(LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {msg}\n")
+    except Exception:
+        pass
 
-def generate_msg(alert):
+def parse_alert_file(path):
+    """Return (alert_dict_or_None, raw_text)."""
+    with open(path, "r", encoding="utf-8", errors="replace") as f:
+        raw = f.read()
+    try:
+        return json.loads(raw), raw
+    except Exception:
+        return None, raw
+
+def extract_fields_from_plain(raw):
+    """Fallback for <alert_format>plain</alert_format>."""
+    agent = ""
+    desc  = ""
+
+    m = re.search(r"(?im)^\s*(Agent\s+name|Agent|agent\.name)\s*:\s*(.+?)\s*$", raw)
+    if m: agent = m.group(2).strip()
+
+    m = re.search(r"(?im)^\s*Description\s*:\s*(.+?)\s*$", raw)
+    if m: desc = m.group(1).strip()
+    if not desc:
+        m = re.search(r"(?im)^\s*Rule\s*:\s*(?:\d+\s*-\s*)?(.+?)\s*$", raw)
+        if m: desc = m.group(1).strip()
+
+    if not agent: agent = "unknown-host"
+    if not desc:
+        for line in raw.splitlines():
+            s = line.strip()
+            if s:
+                desc = s[:150]
+                break
+        if not desc:
+            desc = "Wazuh alert"
+
+    return agent, desc
+
+# --- Sophos/Generic KV parser from full_log ---
+_KV_RE = re.compile(r'(\w+)=("([^"\\]*(?:\\.[^"\\]*)*)"|[^"\s]+)')
+
+def _unquote(v: str) -> str:
+    if len(v) >= 2 and v[0] == '"' and v[-1] == '"':
+        try:
+            return bytes(v[1:-1], "utf-8").decode("unicode_escape")
+        except Exception:
+            return v[1:-1]
+    return v
+
+def parse_kv_from_full_log(full_log: str) -> dict:
+    out = {}
+    if not full_log:
+        return out
+    for k, rawv, _ in _KV_RE.findall(full_log):
+        out[k] = _unquote(rawv)
+    return out
+
+def _normalize_tz(ts: str) -> str:
+    if not ts:
+        return ts
+    ts = ts.strip()
+    if ts.endswith("Z"):
+        return ts[:-1] + "+00:00"
+    m = re.search(r"([+-])(\d{2})(\d{2})$", ts)
+    if m:
+        sign, hh, mm = m.groups()
+        ts = ts[:-5] + f"{sign}{hh}:{mm}"
+    return ts
+
+def _parse_local(ts: str) -> str:
+    fmt_out = "%d.%m.%Y %H:%M:%S"
+    if not ts:
+        return time.strftime(fmt_out)
+    n = _normalize_tz(ts)
+    try:
+        dt = datetime.fromisoformat(n)
+    except Exception:
+        try:
+            core = ts.split(".")[0]
+            dt = datetime.strptime(core, "%Y-%m-%dT%H:%M:%S")
+            dt = dt.replace(tzinfo=timezone.utc).astimezone()
+        except Exception:
+            return time.strftime(fmt_out)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone().strftime(fmt_out)
+
+# ---- Windows source extraction ----
+_INVALID_IPS = {"", "-", "::", "::1", "127.0.0.1", "0.0.0.0"}
+
+def _first_non_empty(paths, d):
+    for p in paths:
+        v = safe_get(d, p, "")
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    return ""
+
+def _is_good_ip(ip: str) -> bool:
+    if not ip or ip in _INVALID_IPS:
+        return False
+    try:
+        ip_obj = ipaddress.ip_address(ip)
+        if ip_obj.is_loopback or ip_obj.is_unspecified:
+            return False
+        return True
+    except ValueError:
+        return False
+
+def _resolve_host_ip(hostname: str) -> str:
     """
-    Function that will provide the custom subject and body for the email.
-    It takes as input a dictionary object generated from the json alert
+    Try to resolve a hostname to an IP.
+    Preference: IPv4 non-loopback; else any non-loopback.
     """
-    description = alert['rule']['description']
-    level = alert['rule']['level']
-    agentname = alert['agent']['name']
-    t = time.strptime(alert['timestamp'].split('.')[0],'%Y-%m-%dT%H:%M:%S')
-    timestamp = time.strftime('%c',t)
+    if not hostname or hostname.strip() in ("-", "."):
+        return ""
+    try:
+        # getaddrinfo honors system search domains; returns both v4/v6 possibly
+        infos = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        ipv6_candidate = ""
+        for fam, _, _, _, sa in infos:
+            ip = sa[0]
+            if _is_good_ip(ip):
+                if fam == socket.AF_INET:
+                    return ip
+                # hold the first acceptable IPv6 in case no IPv4
+                if not ipv6_candidate:
+                    ipv6_candidate = ip
+        return ipv6_candidate
+    except Exception:
+        return ""
 
-    subject = 'Wazuh Alert: {0}, {1}'.format(description, agentname)
-
-    message = """
-    This is an automatic message from your Wazuh Instance.
-    
-    On {a} an event from agent "{b}" triggered the rule "{c}" of level {d}.
-    The full contents of the alert are:
-    {e}
-    """.format(a=timestamp,b=agentname,c=description,d=level,e=json.dumps(alert,indent=4))
-
-    return subject, message
-
-
-# Additional global vars
-debug_enabled = False
-pwd = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
-json_alert = {}
-now = time.strftime("%a %b %d %H:%M:%S %Z %Y")
-
-# Set paths
-log_file = '{0}/logs/integrations.log'.format(pwd)
-
-def main(args):
+def _win_source_fields(alert):
     """
-    Main function. This will call the functions to prepare the message and send the email 
+    Return (src_ip, workstation, logon_type) from Windows eventdata, best-effort,
+    and apply reverse DNS fallback if needed.
     """
-    debug("# Starting")
+    ip_candidates = [
+        "data.win.eventdata.ipAddress", "data.win.eventdata.IpAddress",
+        "data.win.eventdata.SourceNetworkAddress", "data.SourceNetworkAddress",
+        "data.win.eventdata.SourceAddress", "data.SourceAddress",
+        "data.win.eventdata.ClientAddress", "data.ClientAddress",
+        "data.srcip", "data.src_ip",
+    ]
+    ws_candidates = [
+        "data.win.eventdata.WorkstationName", "data.WorkstationName",
+        "data.win.eventdata.Workstation", "data.Workstation",
+    ]
+    logon_type_paths = ["data.win.eventdata.LogonType", "data.LogonType"]
 
-    # Read args
-    alert_file_location = args[1]
-    recipients = args[3]
- 
-    debug("# Webhook")
-    debug(recipients)
+    ip  = _first_non_empty(ip_candidates, alert)
+    ws  = _first_non_empty(ws_candidates, alert)
+    lgt = _first_non_empty(logon_type_paths, alert)
 
-    debug("# File location")
-    debug(alert_file_location)
+    # Normalize invalids
+    if not _is_good_ip(ip):
+        ip = ""
+        # reverse DNS fallback using WorkstationName
+        if RESOLVE_WS_IP and ws:
+            resolved = _resolve_host_ip(ws)
+            if _is_good_ip(resolved):
+                ip = resolved
 
-    # Load alert. Parse JSON object.
-    with open(alert_file_location) as alert_file:
-        json_alert = json.load(alert_file)
-    debug("# Processing alert")
-    debug(json_alert)
+    return ip, ws, lgt
 
-    debug("# Generating message")
-    subject, msg = generate_msg(json_alert)
-    debug(msg)
-
-    debug("# Sending message")
-    send_email(recipients, subject, msg)
-
-def send_email(recipients,subject,body):
+def build_subject_and_body(alert_dict, raw_text):
     """
-    Function to send email using an unautheticated email server.
+    Subject: 'HOST: Description'
+    Body: plain text (German). No JSON dump by default (toggle via INCLUDE_JSON_IN_BODY).
+    Adds:
+      - Windows src IP resolution across multiple fields with invalid/loopback filtering.
+      - Reverse DNS fallback from WorkstationName.
+      - Sophos full_log KV fallback for user/src_ip/message/inner timestamp.
     """
-    TO = recipients.split(',')
+    agent = "unknown-host"
+    desc  = "Wazuh alert"
+    ts    = ""
+    level = rid = evtid = user = srcip = fpath = message = ""
+    workstation = ""
+
+    if isinstance(alert_dict, dict):
+        # Core
+        agent = safe_get(alert_dict, "agent.name", "") or \
+                safe_get(alert_dict, "agent.hostname", "") or \
+                safe_get(alert_dict, "agent.id", "unknown-host")
+        desc  = (safe_get(alert_dict, "rule.description", "Wazuh alert") or "").strip()
+        ts    = safe_get(alert_dict, "timestamp", "")
+
+        # Common fields
+        level = safe_get(alert_dict, "rule.level", "")
+        rid   = safe_get(alert_dict, "rule.id", "")
+        evtid = safe_get(alert_dict, "data.win.system.eventID", "") or safe_get(alert_dict, "EventID", "")
+        user  = _first_non_empty([
+                    "data.win.eventdata.targetUserName", "data.user", "user",
+                    "data.win.eventdata.SubjectUserName", "data.SubjectUserName"
+               ], alert_dict)
+
+        # Windows source ip + workstation + logon type
+        srcip, workstation, logon_type = _win_source_fields(alert_dict)
+
+        # file path
+        fpath = _first_non_empty(["syscheck.path", "data.win.eventdata.filePath", "path"], alert_dict)
+
+        # Sophos KV fallback if missing
+        if (not user or not srcip or not ts) and safe_get(alert_dict, "full_log", ""):
+            kv = parse_kv_from_full_log(safe_get(alert_dict, "full_log", ""))
+            user = user or kv.get("user_name", "") or kv.get("user", "")
+            if not _is_good_ip(srcip):
+                srcip = kv.get("src_ip", "") or kv.get("srcip", "") or srcip
+            message = kv.get("message", "") or message
+            inner_ts = kv.get("timestamp", "")
+            if inner_ts and not ts:
+                ts = inner_ts
+    else:
+        # Plain fallback
+        agent, desc = extract_fields_from_plain(raw_text)
+
+    # Normalize
+    desc = re.sub(r"\s+", " ", desc).strip()[:150]
+    nice_ts = _parse_local(ts)
+    subject = f"{agent}: {desc}"
+
+    # Body
+    lines = [
+        "Automatische Benachrichtigung.",
+        "",
+        f'Am {nice_ts} hat ein Ereignis auf "{agent}" folgende Regel ausgelöst: "{desc}".',
+        "",
+        "Details:",
+        f"  Host:        {agent}",
+        f"  Level:       {level if level != '' else '-'}",
+        f"  Rule-ID:     {rid if rid != '' else '-'}",
+        f"  EventID:     {evtid if evtid else '-'}",
+        f"  Benutzer:    {user if user else '-'}",
+        f"  Quelle-IP:   {srcip if srcip else '-'}",
+        f"  Quelle-Host: {workstation if workstation else '-'}",
+        f"  Pfad:        {fpath if fpath else '-'}",
+    ]
+    if INCLUDE_JSON and isinstance(alert_dict, dict):
+        lines += ["", "Full alert JSON:", json.dumps(alert_dict, ensure_ascii=False, indent=2)]
+    body = "\n".join(lines)
+    return subject, body
+
+def send_email(recipients_csv, subject, body):
+    TO = [r.strip() for r in re.split(r"[;,]", recipients_csv) if r.strip()]
     em = EmailMessage()
     em.set_content(body)
-    em['To'] = TO
-    em['From'] = email_from 
-    em['Subject'] = subject
-    try:
-        # SMTP_SSL Example
-        mailserver = smtplib.SMTP(email_server, 25)
-        mailserver.ehlo() # optional, called by login()
-        mailserver.send_message(em)
-        mailserver.close()
-        debug('Successfully sent the mail to {}'.format(TO))
-    except Exception as e:
-        debug("Failed to send mail to {}".format(TO))
-        debug("With error: {}".format(e))
+    em["From"] = EMAIL_FROM
+    em["To"]   = ", ".join(TO)
+    em["Subject"] = subject
 
-def debug(msg):
-    """
-    Function to generate debug logs
-    """
-    if debug_enabled:
-        msg = "{0}: {1}\n".format(now, msg)
-        print(msg)
-        f = open(log_file, "a")
-        f.write(msg)
-        f.close()
+    smtp = smtplib.SMTP(EMAIL_SERVER, 25)
+    try:
+        smtp.send_message(em)
+    finally:
+        try:
+            smtp.quit()
+        except Exception:
+            pass
+    log_line(f"Sent mail to {TO} with subject: {subject}")
+
+# ---- Main entry ----
+def main(argv):
+    if len(argv) < 4:
+        log_line("Wrong arguments: " + " ".join(argv))
+        return 1
+    alert_path = argv[1]
+    recipients = argv[3]
+    alert_dict, raw_text = parse_alert_file(alert_path)
+    subject, body = build_subject_and_body(alert_dict, raw_text)
+    send_email(recipients, subject, body)
+    return 0
 
 if __name__ == "__main__":
-    try:
-        # Read arguments
-        bad_arguments = False
-        if len(sys.argv) >= 4:
-            msg = '{0} {1} {2} {3} {4}'.format(
-                now,
-                sys.argv[1],
-                sys.argv[2],
-                sys.argv[3],
-                sys.argv[4] if len(sys.argv) > 4 else '',
-            )
-            debug_enabled = (len(sys.argv) > 4 and sys.argv[4] == 'debug')
-        else:
-            msg = '{0} Wrong arguments'.format(now)
-            bad_arguments = True
-
-        # Logging the call
-        f = open(log_file, 'a')
-        f.write(msg + '\n')
-        f.close()
-
-        if bad_arguments:
-            debug("# Exiting: Bad arguments.")
-            sys.exit(1)
-
-        # Main function
-        main(sys.argv)
-
-    except Exception as e:
-        debug(str(e))
-        raise
+    sys.exit(main(sys.argv))
