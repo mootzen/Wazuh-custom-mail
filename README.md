@@ -1,5 +1,7 @@
 # Wazuh custom mail integration
-## Fork of JCT-Wazuh
+
+> [!NOTE]
+> Fork of JCT-Wazuh
 
 ## Install / Setup
 
