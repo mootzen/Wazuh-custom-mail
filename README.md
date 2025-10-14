@@ -1,8 +1,9 @@
 # Wazuh custom mail integration
 ## Fork of JCT-Wazuh
 
+## Install / Setup
 
-## ossec.conf
+### ossec.conf
 ```
   <integration>
     <name>custom-email-alerts</name>
