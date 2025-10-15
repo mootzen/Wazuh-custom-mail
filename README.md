@@ -122,3 +122,7 @@ Ensure only one custom-email-alerts script exists and only one <integration> blo
 
 ### Only one recipient gets mail?
 - Use comma or semicolon in <hook_url>, e.g. ```secops@d.tld,netops@d.tld```
+
+## License
+
+Same as upstream (JCT-Wazuh). Credit to Juan C. Tello for the base integration.
