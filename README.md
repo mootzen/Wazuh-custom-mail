@@ -64,4 +64,40 @@ INCLUDE_JSON_IN_BODY=1
 Default SMTP and sender can be set via env or by editing the top of the script.
 
 Environment (preferred): create a systemd drop-in (optional):
-`/etc/systemd/system/wazuh-manager.service.d/email.env.conf´
+```
+/etc/systemd/system/wazuh-manager.service.d/email.env.conf
+```
+```
+[Service]
+Environment=EMAIL_SERVER=localhost
+Environment=EMAIL_FROM=email-notifications@domain.tld
+# Optional toggles:
+# Environment=INCLUDE_JSON_IN_BODY=1
+# Environment=RESOLVE_WORKSTATION_IP=0
+```
+```
+reload & restart:
+systemctl daemon-reload
+systemctl restart wazuh-manager
+```
+
+## Formatting
+### Subject
+```<agent.name>: <rule.description>```
+
+### Body
+```
+Automatische Benachrichtigung.
+
+Am 13.10.2025 12:11:12 hat ein Ereignis auf "dc" folgende Regel ausgelöst: "Domänen-Admin eingeloggt: ...".
+
+Details:
+  Host:        dc
+  Level:       12
+  Rule-ID:     100096
+  EventID:     4624
+  Benutzer:    DOMAIN\alice           <-- smart selection per event family
+  Quelle-IP:   10.0.0.25              <-- multi-field + reverse DNS fallback
+  Quelle-Host: WS123
+  Pfad:        -
+```
