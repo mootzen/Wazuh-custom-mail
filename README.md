@@ -119,4 +119,4 @@ ls -l /var/ossec/integrations/
 Ensure only one custom-email-alerts script exists and only one <integration> block references it
 
 ### Only one recipient gets mail?
-- Use comma or semicolon in <hook_url>, e.g. secops@d.tld,netops@d.tld
+- Use comma or semicolon in <hook_url>, e.g. ```secops@d.tld,netops@d.tld```
