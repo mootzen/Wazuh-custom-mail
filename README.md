@@ -11,17 +11,17 @@ Fork of JCT-Wazuh
   - Host, Level, Rule-ID, EventID, Benutzer, Quelle-IP, Quelle-Host, Pfad → one-glance context without JSON walls.
 
 - Robust Windows field extraction:
-- Picks the correct Benutzer depending on event family:
+  - Picks the correct Benutzer depending on event family:
 - Account-management (e.g. 4720/4722/4725/4738/4740/4767…): actor (SubjectDomainName\SubjectUserName)
-- Logon family (e.g. 4624/4625/4634/4672/4776/4768/4769/4771…): target (TargetDomainName\TargetUserName)
+  - Logon family (e.g. 4624/4625/4634/4672/4776/4768/4769/4771…): target (TargetDomainName\TargetUserName)
 - Source IP resolution across multiple fields (IpAddress, SourceNetworkAddress, ClientAddress, …) with loopback filtering and reverse DNS fallback from WorkstationName.
-- → Fixes the common “::1 / 127.0.0.1” problem.
+  - → Fixes the common “::1 / 127.0.0.1” problem.
 - JSON in, plain body out:
-- parse <alert_format>json</alert_format> for correctness, but send plain text. Optional env switch to append the pretty JSON when needed.
+  - parse <alert_format>json</alert_format> for correctness, but send plain text. Optional env switch to append the pretty JSON when needed.
 - Multi-recipient support:
-- Comma/semicolon separated recipients in <hook_url>.
+  - Comma/semicolon separated recipients in <hook_url>.
 - No duplicate emails:
-- Clear guidance to disable stock maild for the same levels.
+  - Clear guidance to disable stock maild for the same levels.
 
 ## Install / Setup
 ```
