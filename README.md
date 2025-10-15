@@ -75,8 +75,8 @@ Environment=EMAIL_FROM=email-notifications@domain.tld
 # Environment=INCLUDE_JSON_IN_BODY=1
 # Environment=RESOLVE_WORKSTATION_IP=0
 ```
-```
 reload & restart:
+```
 systemctl daemon-reload
 systemctl restart wazuh-manager
 ```
