@@ -64,4 +64,7 @@ chmod 0750 /var/ossec/integrations/custom-email-alerts
 > Set <email_alert_level>0</email_alert_level> and <email_notification>no</email_notification> to stop the stock maild.
 Also remove or comment any <email_alerts> blocks.
 
-server and sender address also have to be adjusted at the top of the custom integration
+To include the full JSON at the end (for debugging or threading rules), set:
+```
+INCLUDE_JSON_IN_BODY=1
+```
