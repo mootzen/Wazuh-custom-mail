@@ -10,6 +10,8 @@ To change that I forked JCT's custom mail integration and built on top of it.
 
 The main focus of this integration is to highlight ONLY relevant information of the alert and to create a subject line that gives you an overview of what happened on the first glance and to reduce unneccessary noise
 
+Hence the end result is very plain and simple. If you are looking for visually appealing wazuh mails check out my [wazuhMailReport](https://github.com/mootzen/wazuhMailReport)
+
 ## Changes
 
 - Subject format: HOST: Description
