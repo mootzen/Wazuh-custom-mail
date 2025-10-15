@@ -40,7 +40,6 @@ chmod 0750 /var/ossec/integrations/custom-email-alerts
   <!-- optional filters:
        <rule_id>5710,5711,4740</rule_id>
        <group>windows,authentication_failed</group>
-       <event_location>^win
   -->
 </integration>
 
