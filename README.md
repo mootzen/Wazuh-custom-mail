@@ -1,6 +1,6 @@
 # Wazuh custom mail integration
 
-Fork of JCT-Wazuh
+*Fork of JCT-Wazuh*
 
 Wazuh's default alert mails have a very generic subject that doesn't give much information on whats actually happening.
 
