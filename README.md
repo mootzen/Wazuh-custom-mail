@@ -4,7 +4,7 @@
 
 Wazuh's default alert mails have a very generic subject that doesn't give much information on whats actually happening.
 
-e.g. default subject: **Wazuh notification - (DC-4) any - Alert level 12**
+e.g. default subject: **Wazuh notification - (AGENT) any - Alert level 12**
 
 To change that I forked JCT's custom mail integration and built on top of it.
 
