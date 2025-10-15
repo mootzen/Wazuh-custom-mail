@@ -4,10 +4,10 @@ Fork of JCT-Wazuh
 
 ## Changes
 
-Subject format: HOST: Description
-Clean and scannable; avoids noisy rule levels/IDs in the subject.
+- Subject format: HOST: Description
+  Clean and scannable; avoids noisy rule levels/IDs in the subject.
 
-Plain-text body (German) with key fields:
+- Plain-text body (German) with key fields:
 Host, Level, Rule-ID, EventID, Benutzer, Quelle-IP, Quelle-Host, Pfad → one-glance context without JSON walls.
 
 Robust Windows field extraction:
