@@ -2,6 +2,14 @@
 
 Fork of JCT-Wazuh
 
+Wazuh's default alert mails have a very generic subject that doesn't give much information on whats actually happening.
+
+e.g. default subject: Wazuh notification - (DC-4) any - Alert level 12
+
+To change that I forked JCT's custom mail integration and built on top of it.
+
+The main focus of this integration is to highlight ONLY relevant information of the alert and to create a subject line that gives you an overview of what happened on the first glance
+
 ## Changes
 
 - Subject format: HOST: Description
