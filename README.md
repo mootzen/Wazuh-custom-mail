@@ -101,3 +101,14 @@ Details:
   Quelle-Host: WS123
   Pfad:        -
 ```
+## Troubleshooting
+
+### Still get duplicate mails?
+```
+grep -RIn '<email_alerts>|email_alert_level|email_notification' /var/ossec/etc
+ls -l /var/ossec/integrations/
+```
+Ensure only one custom-email-alerts script exists and only one <integration> block references it
+
+### Only one recipient gets mail?
+- Use comma or semicolon in <hook_url>, e.g. secops@d.tld,netops@d.tld
