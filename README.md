@@ -60,7 +60,7 @@ To include the full JSON at the end (for debugging or threading rules), set:
 ```
 INCLUDE_JSON_IN_BODY=1
 ```
-### Set server & sender
+### set server & sender
 Default SMTP and sender can be set via env or by editing the top of the script.
 
 Environment (preferred): create a systemd drop-in (optional):
