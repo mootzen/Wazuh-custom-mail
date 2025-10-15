@@ -8,7 +8,7 @@ e.g. default subject: Wazuh notification - (DC-4) any - Alert level 12
 
 To change that I forked JCT's custom mail integration and built on top of it.
 
-The main focus of this integration is to highlight ONLY relevant information of the alert and to create a subject line that gives you an overview of what happened on the first glance
+The main focus of this integration is to highlight ONLY relevant information of the alert and to create a subject line that gives you an overview of what happened on the first glance and to reduce unneccessary noise
 
 ## Changes
 
