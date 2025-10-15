@@ -1,25 +1,67 @@
 # Wazuh custom mail integration
 
-> [!NOTE]
-> Fork of JCT-Wazuh
+Fork of JCT-Wazuh
+
+## Changes
+
+Subject format: HOST: Description
+Clean and scannable; avoids noisy rule levels/IDs in the subject.
+
+Plain-text body (German) with key fields:
+Host, Level, Rule-ID, EventID, Benutzer, Quelle-IP, Quelle-Host, Pfad → one-glance context without JSON walls.
+
+Robust Windows field extraction:
+
+Picks the correct Benutzer depending on event family:
+
+Account-management (e.g. 4720/4722/4725/4738/4740/4767…): actor (SubjectDomainName\SubjectUserName)
+
+Logon family (e.g. 4624/4625/4634/4672/4776/4768/4769/4771…): target (TargetDomainName\TargetUserName)
+
+Source IP resolution across multiple fields (IpAddress, SourceNetworkAddress, ClientAddress, …) with loopback filtering and reverse DNS fallback from WorkstationName.
+→ Fixes the common “::1 / 127.0.0.1” problem.
+
+JSON in, plain body out:
+We parse <alert_format>json</alert_format> for correctness, but send plain text. Optional env switch to append the pretty JSON when needed.
+
+Multi-recipient support:
+Comma/semicolon separated recipients in <hook_url>.
+
+No duplicate emails:
+Clear guidance to disable stock maild for the same levels.
 
 ## Install / Setup
-
+```
+/var/ossec/integrations/custom-email-alerts
+# ensure executable & owned by wazuh group
+chown root:wazuh /var/ossec/integrations/custom-email-alerts
+chmod 0750 /var/ossec/integrations/custom-email-alerts
+```
 ### ossec.conf
 ```
-  <integration>
-    <name>custom-email-alerts</name>
-    <hook_url>recipient@domain.tld</hook_url>   <!-- recipient(s) -->
-    <level>12</level>
-    <alert_format>json</alert_format>
-  <!-- optionale filter:
+<integration>
+  <name>custom-email-alerts</name>
+  <hook_url>secops@domain.tld,netops@domain.tld</hook_url>  <!-- recipients -->
+  <level>12</level>
+  <alert_format>json</alert_format>                          <!-- important -->
+  <!-- optional filters:
        <rule_id>5710,5711,4740</rule_id>
        <group>windows,authentication_failed</group>
-       <event_location>^win</event_location>
+       <event_location>^win
   -->
-  </integration>
+</integration>
+
+<alerts>
+  <log_alert_level>3</log_alert_level>
+  <email_alert_level>0</email_alert_level>  <!-- disable stock mailer -->
+</alerts>
+
+<global>
+  <email_notification>no</email_notification>                <!-- also disable -->
+</global>
 ```
 > [!IMPORTANT]
-> It is necessary to set either `<email_alert_level>0</email_alert_level>` or just to comment it out or delete the line. Otherwise the stock maild will keep sending mails.
+> Set <email_alert_level>0</email_alert_level> and <email_notification>no</email_notification> to stop the stock maild.
+Also remove or comment any <email_alerts> blocks.
 
 server and sender address also have to be adjusted at the top of the custom integration
